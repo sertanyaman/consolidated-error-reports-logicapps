@@ -1,10 +1,10 @@
 //*****************************************************************************************************************
 // Consolidated error report generator azure function for logic app action results
 // Author : Tayfun Sertan Yaman
+// Version : 1.1.2
 //https://github.com/sertanyaman/consolidated-error-reports-logicapps
 // MIT License
 //*****************************************************************************************************************
-
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -20,6 +20,7 @@ namespace consolidated_error_reports_logicapps
     /// <summary>
     /// Consolidated error report generator azure function for logic app action results
     /// Author : Tayfun Sertan Yaman
+    /// Ver : 1.1.2
     /// https://github.com/sertanyaman/consolidated-error-reports-logicapps
     /// MIT License
     /// </summary>
@@ -96,7 +97,7 @@ namespace consolidated_error_reports_logicapps
                             {
                                 if (result.outputs.body is JObject)
                                 {
-                                    //Try body error message from V1 .NET logic apps
+                                    //Try body error message from V1 .NET azure functions
                                     if (!parsedOk && result.outputs.body?.Message != null && result.outputs.body?.ClassName != null && result.outputs.body.Message != String.Empty)
                                     {
                                         logicAppsError.Message = result.outputs.body.Message;
@@ -105,12 +106,30 @@ namespace consolidated_error_reports_logicapps
                                         parsedOk = true;
                                     }
 
-                                    //Try body error message from V3 .NET logic apps
+                                    //Try body error message from V3 .NET azure functions
                                     if (!parsedOk && result.outputs.body?.message != null && result.outputs.body?.source != null && result.outputs.body.message != String.Empty)
                                     {
                                         logicAppsError.Message = result.outputs.body.message;
                                         logicAppsError.Source = result.outputs.body.source ?? logicAppsError.Source;
                                         logicAppsError.StackTrace = result.outputs.body.stackTrace ?? "";
+                                        parsedOk = true;
+                                    }
+
+                                    //Try body error message from V3 NET azure functions azure exception result detailed .
+                                    if (!parsedOk && result.outputs.body?.Message != null && result.outputs.body?.ExceptionMessage != null && result.outputs.body.StackTrace != null)
+                                    {
+                                        logicAppsError.Message = result.outputs.body.ExceptionMessage;
+                                        logicAppsError.Source = result.outputs.body.ExceptionType ?? logicAppsError.Source;
+                                        logicAppsError.StackTrace = result.outputs.body.StackTrace ?? "";
+                                        parsedOk = true;
+                                    }
+
+                                    //Try body error message from OData errors
+                                    if (!parsedOk && result.outputs.body["odata.error"] != null)
+                                    {
+                                        dynamic odataBody = result.outputs.body["odata.error"];
+                                        logicAppsError.Message = odataBody.message.value ?? $"{ odataBody.message }";
+                                        logicAppsError.Code = odataBody.code ?? logicAppsError.Code;
                                         parsedOk = true;
                                     }
 

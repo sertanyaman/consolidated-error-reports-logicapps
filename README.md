@@ -21,3 +21,7 @@ Response JSON exception format :
 | Source  | Exception creating source (Exception class names in Azure function exceptions)  |
 | ClientTrackingId  | Logic apps tracking ID  |
 | StartTime  | Logic apps trigger execution datetime  |
+
+For more info check my blog post at :
+
+https://devblog.sertanyaman.com/2021/02/01/better-logic-apps-error-handling-with-consolidated-error-reports/

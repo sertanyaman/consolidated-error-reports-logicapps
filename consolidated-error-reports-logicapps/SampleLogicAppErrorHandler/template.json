@@ -1,0 +1,276 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflows_sample_errorhandling_template_name": {
+            "defaultValue": "sample-errorhandling-template",
+            "type": "String"
+        },
+        "sites_tsygenfunc_externalid": {
+            "defaultValue": "<<your deployed function app external-id>>",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('workflows_sample_errorhandling_template_name')]",
+            "location": "eastus",
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {},
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {},
+                            "description": "Request body",
+                            "operationOptions": "EnableSchemaValidation"
+                        }
+                    },
+                    "actions": {
+                        "Catch": {
+                            "actions": {
+                                "Filter_failed_results": {
+                                    "runAfter": {
+                                        "Set_variable_ErrorHandlingBlockResults": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Query",
+                                    "inputs": {
+                                        "from": "@variables('ErrorHandlingBlockResults')",
+                                        "where": "@equals(item()['status'], 'Failed')"
+                                    },
+                                    "description": "Filter results that are failed"
+                                },
+                                "GetConsolidatedErrorReportFromResults": {
+                                    "runAfter": {
+                                        "Filter_failed_results": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Function",
+                                    "inputs": {
+                                        "body": "@body('Filter_failed_results')",
+                                        "function": {
+                                            "id": "[concat(parameters('sites_tsygenfunc_externalid'), '/functions/GetConsolidatedErrorReportFromResults')]"
+                                        }
+                                    },
+                                    "description": "Pickup actual error messages from different types of result bodies, format it into standard error report format"
+                                },
+                                "Set_variable_ErrorHandlingBlockResults": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "ErrorHandlingBlockResults",
+                                        "value": "@result('Try')"
+                                    },
+                                    "description": "Combined block results for the blocks that can create error response, Can be only one Try block or union of different blocks"
+                                },
+                                "Set_variable_ResponseBody_BadRequest": {
+                                    "runAfter": {
+                                        "Set_variable_StatusCode_BadRequest": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "ResponseBody",
+                                        "value": {
+                                            "response": "@body('GetConsolidatedErrorReportFromResults')"
+                                        }
+                                    },
+                                    "description": "Set response body to consolidated error report"
+                                },
+                                "Set_variable_StatusCode_BadRequest": {
+                                    "runAfter": {
+                                        "GetConsolidatedErrorReportFromResults": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "StatusCode",
+                                        "value": 400
+                                    },
+                                    "description": "Set status code to Bad Request status"
+                                }
+                            },
+                            "runAfter": {
+                                "Try": [
+                                    "Failed",
+                                    "TimedOut",
+                                    "Skipped"
+                                ]
+                            },
+                            "type": "Scope",
+                            "description": "Catch block for error handling"
+                        },
+                        "Finally": {
+                            "actions": {
+                                "Response": {
+                                    "runAfter": {},
+                                    "type": "Response",
+                                    "kind": "Http",
+                                    "inputs": {
+                                        "body": "@variables('ResponseBody')",
+                                        "headers": {
+                                            "Content-type": "application/json"
+                                        },
+                                        "statusCode": "@variables('StatusCode')"
+                                    },
+                                    "description": "Finally send the response to the caller. Use only one response block in one app.",
+                                    "operationOptions": "Asynchronous"
+                                },
+                                "Terminate_if_fault": {
+                                    "actions": {
+                                        "Terminate": {
+                                            "runAfter": {},
+                                            "type": "Terminate",
+                                            "inputs": {
+                                                "runError": {
+                                                    "code": "@{variables('StatusCode')}",
+                                                    "message": "@{variables('ResponseBody')}"
+                                                },
+                                                "runStatus": "Failed"
+                                            },
+                                            "description": "Terminate execution and log to execution summary if an error happens"
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Response": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "not": {
+                                                    "equals": [
+                                                        "@variables('StatusCode')",
+                                                        200
+                                                    ]
+                                                }
+                                            }
+                                        ]
+                                    },
+                                    "type": "If",
+                                    "description": "Terminate execution and log to execution summary if an error happens"
+                                }
+                            },
+                            "runAfter": {
+                                "Catch": [
+                                    "Skipped",
+                                    "Succeeded",
+                                    "Failed",
+                                    "TimedOut"
+                                ]
+                            },
+                            "type": "Scope"
+                        },
+                        "Initialize_variable_ErrorHandlingBlockResults": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ErrorHandlingBlockResults",
+                                        "type": "array"
+                                    }
+                                ]
+                            },
+                            "description": "Consolidated try-block results to be sent to error formatting function"
+                        },
+                        "Initialize_variable_ResponseBody": {
+                            "runAfter": {
+                                "Initialize_variable_ErrorHandlingBlockResults": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ResponseBody",
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "description": "Body JSON object to be sent in Logic Apps response"
+                        },
+                        "Initialize_variable_StatusCode": {
+                            "runAfter": {
+                                "Initialize_variable_ResponseBody": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "StatusCode",
+                                        "type": "integer",
+                                        "value": 500
+                                    }
+                                ]
+                            },
+                            "description": "Status code to be sent in Logic Apps response"
+                        },
+                        "Try": {
+                            "actions": {
+                                "Set_variable_ResponseBody": {
+                                    "runAfter": {
+                                        "Set_variable_StatusCode": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "ResponseBody",
+                                        "value": {
+                                            "response": "success"
+                                        }
+                                    }
+                                },
+                                "Set_variable_StatusCode": {
+                                    "runAfter": {
+                                        "Throw_dummy_error": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "StatusCode",
+                                        "value": 200
+                                    }
+                                },
+                                "Throw_dummy_error": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "ResponseBody",
+                                        "value": 1
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_variable_StatusCode": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Scope"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {}
+            }
+        }
+    ]
+}
